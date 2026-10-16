@@ -5,7 +5,16 @@ let workerPromise: Promise<Worker> | null = null;
 
 function getWorker(): Promise<Worker> {
   if (!workerPromise) {
-    workerPromise = createWorker("eng");
+    // Self-hosted worker/core/language assets (public/tesseract/) instead of
+    // the jsdelivr CDN defaults, so OCR has no third-party runtime dependency
+    // and keeps working if that CDN is unreachable or blocked.
+    const base = import.meta.env.BASE_URL;
+    workerPromise = createWorker("eng", 1, {
+      workerPath: `${base}tesseract/worker.min.js`,
+      corePath: `${base}tesseract/core/`,
+      langPath: `${base}tesseract/lang`,
+      gzip: true,
+    });
   }
   return workerPromise;
 }
