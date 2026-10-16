@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink-950: #0a1120;
+  --color-ink-900: #0f1b2e;
+  --color-ink-800: #15253d;
+  --color-ink-700: #1d3252;
+  --color-brand-500: #2f7f6e;
+  --color-brand-400: #3fa391;
+  --color-brand-300: #6fc4b4;
+  --color-gold-400: #d9a441;
+  --color-credit-500: #2f9e6f;
+  --color-debit-500: #d9534f;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(63, 163, 145, 0.14), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(217, 164, 65, 0.1), transparent 55%),
+    var(--color-ink-950);
+  color: #eef3f3;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(63, 163, 145, 0.35);
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
