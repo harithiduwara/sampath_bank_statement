@@ -15,6 +15,19 @@ export interface Transaction {
   /** Position within the source document, for stable same-date ordering. */
   order: number;
   raw: string;
+  /** OCR'd rows only: whether the figures were confirmed by the running balance. */
+  confidence?: "verified" | "corrected" | "review";
+  dateEstimated?: boolean;
+}
+
+export interface ReadQuality {
+  verified: number;
+  corrected: number;
+  review: number;
+  /** Whether our debit/credit sums equal the statement's printed "Total" line. */
+  totals: "match" | "mismatch" | "unknown";
+  totalDebit: number;
+  totalCredit: number;
 }
 
 export interface StatementMeta {
@@ -37,6 +50,7 @@ export interface ProcessedFile {
   txnCount?: number;
   meta?: StatementMeta;
   usedOcr: boolean;
+  quality?: ReadQuality;
 }
 
 export interface AnalysisBucket {

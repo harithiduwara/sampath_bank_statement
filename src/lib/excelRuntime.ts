@@ -24,10 +24,12 @@ export function buildWorkbook(
     Balance: t.balance ?? "",
     "Source File": t.sourceFile,
     Page: t.sourcePage,
+    "Read check": t.confidence === "verified" ? "Confirmed" : t.confidence === "corrected" ? "Auto-corrected" : t.confidence === "review" ? "Needs review" : "",
+    "Date estimated": t.dateEstimated ? "Yes" : "",
   }));
   const wsTxns = XLSX.utils.json_to_sheet(txnRows);
   wsTxns["!cols"] = [
-    { wch: 12 }, { wch: 40 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 26 }, { wch: 6 },
+    { wch: 12 }, { wch: 40 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 26 }, { wch: 6 }, { wch: 15 }, { wch: 14 },
   ];
   XLSX.utils.book_append_sheet(wb, wsTxns, "Transactions");
 

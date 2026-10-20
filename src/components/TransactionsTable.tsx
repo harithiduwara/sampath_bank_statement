@@ -4,9 +4,37 @@ import type { Transaction } from "../lib/types";
 const currency = (n: number | null) =>
   n === null ? "—" : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/** OCR'd rows whose figures the running balance couldn't fully confirm. */
+const needsLook = (t: Transaction) => t.confidence === "review" || t.confidence === "corrected";
+
+function ConfidenceMark({ t }: { t: Transaction }) {
+  if (t.confidence === "corrected") {
+    return (
+      <span
+        className="mr-2 inline-block h-2 w-2 rounded-full bg-gold-400 align-middle"
+        title={`Some digits were misread on the scan and corrected using the running balance. Original reading: ${t.raw}`}
+        aria-label="Auto-corrected"
+      />
+    );
+  }
+  if (t.confidence === "review") {
+    return (
+      <span
+        className="mr-2 rounded bg-debit-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-debit-500"
+        title={`The scan was hard to read here — please compare with the paper statement. OCR read: ${t.raw}`}
+      >
+        Check
+      </span>
+    );
+  }
+  return null;
+}
+
 export default function TransactionsTable({ txns }: { txns: Transaction[] }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
+  const [reviewOnly, setReviewOnly] = useState(false);
+  const flaggedCount = useMemo(() => txns.filter(needsLook).length, [txns]);
 
   const categories = useMemo(
     () => ["All", ...new Set(txns.map((t) => t.category))].sort((a, b) => (a === "All" ? -1 : a.localeCompare(b))),
@@ -18,9 +46,9 @@ export default function TransactionsTable({ txns }: { txns: Transaction[] }) {
     return txns.filter((t) => {
       const matchesQuery = !q || t.description.toLowerCase().includes(q) || t.sourceFile.toLowerCase().includes(q);
       const matchesCat = category === "All" || t.category === category;
-      return matchesQuery && matchesCat;
+      return matchesQuery && matchesCat && (!reviewOnly || needsLook(t));
     });
-  }, [txns, query, category]);
+  }, [txns, query, category, reviewOnly]);
 
   if (txns.length === 0) return null;
 
@@ -31,6 +59,18 @@ export default function TransactionsTable({ txns }: { txns: Transaction[] }) {
           Transactions <span className="text-white/40">({filtered.length})</span>
         </h2>
         <div className="flex flex-wrap gap-2">
+          {flaggedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setReviewOnly((v) => !v)}
+              aria-pressed={reviewOnly}
+              className={`rounded-lg border px-3 py-2 text-sm transition ${
+                reviewOnly ? "border-gold-400/60 bg-gold-400/15 text-gold-400" : "border-white/10 text-white/60 hover:bg-white/5"
+              }`}
+            >
+              Check flagged rows ({flaggedCount})
+            </button>
+          )}
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -65,8 +105,19 @@ export default function TransactionsTable({ txns }: { txns: Transaction[] }) {
           <tbody>
             {filtered.map((t) => (
               <tr key={t.id} className="border-t border-white/5 hover:bg-white/[0.03]">
-                <td className="whitespace-nowrap px-3 py-2 text-white/70">{t.date}</td>
-                <td className="px-3 py-2 text-white/90">{t.description}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-white/70">
+                  {t.dateEstimated ? (
+                    <span className="italic text-white/45" title="Date was unreadable on the scan — estimated from neighbouring rows">
+                      ~{t.date}
+                    </span>
+                  ) : (
+                    t.date
+                  )}
+                </td>
+                <td className="px-3 py-2 text-white/90">
+                  <ConfidenceMark t={t} />
+                  {t.description}
+                </td>
                 <td className="whitespace-nowrap px-3 py-2">
                   <span className="rounded-full bg-white/5 px-2 py-0.5 text-xs text-white/60">{t.category}</span>
                 </td>

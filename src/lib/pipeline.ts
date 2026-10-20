@@ -1,5 +1,9 @@
-import { extractLines, openPdf, PdfPasswordError, renderPageToCanvas, totalChars, type PdfLine } from "./pdf";
-import { ocrCanvas } from "./ocr";
+import type { PDFPageProxy } from "pdfjs-dist";
+import { extractLines, openPdf, PdfPasswordError, renderPageToCanvas, totalChars } from "./pdf";
+import { browserOcr } from "./ocr";
+import { toInkGray } from "./imagePrep";
+import { scanStatementPage } from "./scanTable";
+import { parseScannedStatement, type ScannedPage } from "./parseScanned";
 import { parseStatementLines } from "./parseStatement";
 import type { ProcessedFile, StatementMeta, Transaction } from "./types";
 
@@ -35,6 +39,15 @@ export async function processFile(
   return processPdf(file, base, knownPassword, cb);
 }
 
+async function scanCanvas(canvas: HTMLCanvasElement, page: number, cb: PipelineCallbacks, pageLabel: string): Promise<ScannedPage> {
+  const { data, width, height } = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height);
+  const gray = toInkGray(data, width, height);
+  const scan = await scanStatementPage(gray, browserOcr, (step) =>
+    cb.onUpdate({ status: "ocr", message: step === "layout" ? `${pageLabel}: finding the table` : `${pageLabel}: reading ${step}` })
+  );
+  return { page, ...scan };
+}
+
 async function processImage(
   file: File,
   base: ProcessedFile,
@@ -47,21 +60,29 @@ async function processImage(
   canvas.height = bitmap.height;
   canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
 
-  const lines = await ocrCanvas(canvas);
-  cb.onUpdate({ status: "parsing" });
-  const { transactions, meta } = parseStatementLines(lines, file.name, 1);
+  const scanned = await scanCanvas(canvas, 1, cb, "Image");
+  cb.onUpdate({ status: "parsing", message: "Reconciling balances" });
+  const { transactions, meta, quality } = parseScannedStatement([scanned], file.name);
 
   const result: ProcessedFile = {
     ...base,
     status: "done",
+    message: undefined,
     usedOcr: true,
     pagesTotal: 1,
     pagesOcr: 1,
     txnCount: transactions.length,
     meta,
+    quality,
   };
   cb.onUpdate(result);
   return { file: result, transactions, meta, passwordUsed: null };
+}
+
+/** Renders a scanned page at roughly 2000px wide: enough for the table scanner to upscale from. */
+function scanScale(page: PDFPageProxy): number {
+  const { width } = page.getViewport({ scale: 1 });
+  return Math.min(3, Math.max(1, 2000 / width));
 }
 
 async function processPdf(
@@ -97,18 +118,18 @@ async function processPdf(
 
   const allTransactions: Transaction[] = [];
   let meta: StatementMeta | null = null;
-  let pagesOcr = 0;
+  const scannedPages: ScannedPage[] = [];
 
   for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
     const page = await doc.getPage(pageNum);
-    let lines: PdfLine[] = await extractLines(page);
+    const lines = await extractLines(page);
 
-    // Scanned / image-only page: fall back to OCR.
+    // Scanned / photographed page: no text layer, so read the table with OCR.
     if (totalChars(lines) < 20) {
-      cb.onUpdate({ status: "ocr", pagesOcr: pagesOcr + 1 });
-      const canvas = await renderPageToCanvas(page);
-      lines = await ocrCanvas(canvas);
-      pagesOcr += 1;
+      cb.onUpdate({ status: "ocr", pagesOcr: scannedPages.length + 1 });
+      const canvas = await renderPageToCanvas(page, scanScale(page));
+      scannedPages.push(await scanCanvas(canvas, pageNum, cb, `Page ${pageNum}/${doc.numPages}`));
+      continue;
     }
 
     cb.onUpdate({ status: "parsing" });
@@ -119,14 +140,25 @@ async function processPdf(
     }
   }
 
+  let quality: ProcessedFile["quality"];
+  if (scannedPages.length) {
+    cb.onUpdate({ status: "parsing", message: "Reconciling balances" });
+    const scanned = parseScannedStatement(scannedPages, file.name);
+    allTransactions.push(...scanned.transactions);
+    quality = scanned.quality;
+    if (!meta || Object.keys(scanned.meta).length > Object.keys(meta).length) meta = scanned.meta;
+  }
+
   const result: ProcessedFile = {
     ...base,
     status: "done",
-    usedOcr: pagesOcr > 0,
+    message: undefined,
+    usedOcr: scannedPages.length > 0,
     pagesTotal: doc.numPages,
-    pagesOcr,
+    pagesOcr: scannedPages.length,
     txnCount: allTransactions.length,
     meta: meta ?? undefined,
+    quality,
   };
   cb.onUpdate(result);
   return { file: result, transactions: allTransactions, meta, passwordUsed };

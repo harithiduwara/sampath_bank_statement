@@ -33,9 +33,10 @@ export default function ProcessingLog({ files }: { files: ProcessedFile[] }) {
                 <p className="text-xs text-white/50">
                   {STATUS_LABEL[f.status]}
                   {f.message ? ` — ${f.message}` : ""}
-                  {f.usedOcr ? " · OCR used" : ""}
+                  {f.usedOcr ? " · scanned (OCR)" : ""}
                   {typeof f.txnCount === "number" ? ` · ${f.txnCount} transactions` : ""}
                 </p>
+                {f.status === "done" && f.quality && <QualityLine quality={f.quality} />}
               </div>
               <StatusDot status={f.status} />
             </motion.li>
@@ -43,6 +44,23 @@ export default function ProcessingLog({ files }: { files: ProcessedFile[] }) {
         </AnimatePresence>
       </ul>
     </div>
+  );
+}
+
+function QualityLine({ quality }: { quality: NonNullable<ProcessedFile["quality"]> }) {
+  const totals =
+    quality.totals === "match"
+      ? { text: "✓ matches the statement's printed totals", cls: "text-credit-500" }
+      : quality.totals === "mismatch"
+      ? { text: "⚠ differs from the printed totals — check flagged rows", cls: "text-gold-400" }
+      : null;
+  return (
+    <p className="mt-0.5 text-xs text-white/50">
+      <span className="text-credit-500">{quality.verified} confirmed</span>
+      {quality.corrected > 0 && <span className="text-white/60"> · {quality.corrected} auto-corrected via running balance</span>}
+      {quality.review > 0 && <span className="text-debit-500"> · {quality.review} need review</span>}
+      {totals && <span className={totals.cls}> · {totals.text}</span>}
+    </p>
   );
 }
 
