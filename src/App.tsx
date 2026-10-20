@@ -8,7 +8,7 @@ import InsightsPanel from "./components/InsightsPanel";
 import { processFile } from "./lib/pipeline";
 import { mergeAndDedupe } from "./lib/dedupe";
 import { buildInsights, buildSummary, categoryBreakdown, monthlyBuckets } from "./lib/analysis";
-import { buildWorkbook, downloadWorkbook } from "./lib/excelRuntime";
+import { buildWorkbook, downloadWorkbook, safeFileName } from "./lib/excelRuntime";
 import type { ProcessedFile, StatementMeta, Transaction } from "./lib/types";
 
 interface PinRequest {
@@ -47,12 +47,19 @@ export default function App() {
       const id = `${file.name}_${file.size}_${file.lastModified}`;
       setFiles((prev) => [...prev.filter((f) => f.id !== id), { id, name: file.name, size: file.size, status: "queued", usedOcr: false }]);
 
-      const result = await processFile(file, knownPassword.current, {
-        onUpdate: (patch) => {
-          setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch, id } : f)));
-        },
-        askForPassword: askForPassword(file.name),
-      });
+      const update = (patch: Partial<ProcessedFile>) =>
+        setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch, id } : f)));
+      let result;
+      try {
+        result = await processFile(file, knownPassword.current, {
+          onUpdate: update,
+          askForPassword: askForPassword(file.name),
+        });
+      } catch {
+        // A malformed file must not stall the rest of the batch.
+        update({ status: "error", message: "Could not read this file" });
+        continue;
+      }
 
       if (result.passwordUsed) knownPassword.current = result.passwordUsed;
       if (result.transactions.length > 0) {
@@ -73,7 +80,7 @@ export default function App() {
 
   const handleExport = useCallback(() => {
     const wb = buildWorkbook(txns, buckets, categories, summary);
-    downloadWorkbook(wb, `${(meta?.accountNo ?? "bank-statement").replace(/\s+/g, "_")}-analysis.xlsx`);
+    void downloadWorkbook(wb, safeFileName(meta?.accountNo ?? "bank-statement"));
   }, [txns, buckets, categories, summary, meta]);
 
   return (

@@ -18,7 +18,34 @@ export interface PipelineCallbacks {
   askForPassword: (attemptsSoFar: number) => Promise<string | null>;
 }
 
-const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+/** Limits that keep a hostile or oversized file from freezing or crashing the tab. */
+export const LIMITS = {
+  maxFileBytes: 50 * 1024 * 1024,
+  maxPages: 60,
+  maxPinAttempts: 5,
+  /** Largest canvas we rasterize to (about 25 megapixels). */
+  maxCanvasPixels: 25_000_000,
+};
+
+type FileKind = "pdf" | "image" | "unknown";
+
+/** Identifies the file from its first bytes instead of trusting its name or reported type. */
+async function sniffKind(file: File): Promise<FileKind> {
+  const b = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+  const ascii = (from: number, to: number) => String.fromCharCode(...b.slice(from, to));
+  // PDF headers may follow a few junk bytes; check the first 16.
+  if (ascii(0, 16).includes("%PDF-")) return "pdf";
+  if (b[0] === 0x89 && ascii(1, 4) === "PNG") return "image";
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image";
+  if (ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return "image";
+  return "unknown";
+}
+
+function fail(base: ProcessedFile, message: string, cb: PipelineCallbacks) {
+  const result: ProcessedFile = { ...base, status: "error", message };
+  cb.onUpdate(result);
+  return { file: result, transactions: [], meta: null, passwordUsed: null };
+}
 
 export async function processFile(
   file: File,
@@ -33,10 +60,13 @@ export async function processFile(
     usedOcr: false,
   };
 
-  if (IMAGE_TYPES.includes(file.type)) {
-    return processImage(file, base, cb);
+  if (file.size > LIMITS.maxFileBytes) {
+    return fail(base, `File is larger than ${LIMITS.maxFileBytes / 1024 / 1024} MB`, cb);
   }
-  return processPdf(file, base, knownPassword, cb);
+  const kind = await sniffKind(file);
+  if (kind === "image") return processImage(file, base, cb);
+  if (kind === "pdf") return processPdf(file, base, knownPassword, cb);
+  return fail(base, "Not a PDF, PNG, JPEG or WEBP file", cb);
 }
 
 async function scanCanvas(canvas: HTMLCanvasElement, page: number, cb: PipelineCallbacks, pageLabel: string): Promise<ScannedPage> {
@@ -54,11 +84,19 @@ async function processImage(
   cb: PipelineCallbacks
 ): Promise<PipelineResult & { passwordUsed: string | null }> {
   cb.onUpdate({ status: "ocr" });
-  const bitmap = await createImageBitmap(file);
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return fail(base, "Could not decode this image", cb);
+  }
+  // Downscale very large photos so the canvas stays within budget.
+  const shrink = Math.min(1, Math.sqrt(LIMITS.maxCanvasPixels / (bitmap.width * bitmap.height)));
   const canvas = document.createElement("canvas");
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
-  canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
+  canvas.width = Math.max(1, Math.floor(bitmap.width * shrink));
+  canvas.height = Math.max(1, Math.floor(bitmap.height * shrink));
+  canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
 
   const scanned = await scanCanvas(canvas, 1, cb, "Image");
   cb.onUpdate({ status: "parsing", message: "Reconciling balances" });
@@ -81,8 +119,9 @@ async function processImage(
 
 /** Renders a scanned page at roughly 2000px wide: enough for the table scanner to upscale from. */
 function scanScale(page: PDFPageProxy): number {
-  const { width } = page.getViewport({ scale: 1 });
-  return Math.min(3, Math.max(1, 2000 / width));
+  const { width, height } = page.getViewport({ scale: 1 });
+  const wanted = Math.min(3, Math.max(1, 2000 / width));
+  return Math.min(wanted, Math.sqrt(LIMITS.maxCanvasPixels / (width * height)));
 }
 
 async function processPdf(
@@ -98,6 +137,7 @@ async function processPdf(
   let passwordUsed: string | null = null;
   try {
     const opened = await openPdf(buf, knownPassword, async (attempt) => {
+      if (attempt >= LIMITS.maxPinAttempts) return null;
       cb.onUpdate({ status: "needs-pin", message: attempt > 0 ? "Incorrect PIN, try again" : undefined });
       return cb.askForPassword(attempt);
     });
@@ -105,13 +145,18 @@ async function processPdf(
     passwordUsed = opened.passwordUsed;
   } catch (err) {
     if (err instanceof PdfPasswordError) {
-      const result: ProcessedFile = { ...base, status: "error", message: "Cancelled: PDF remains locked." };
+      const result: ProcessedFile = { ...base, status: "error", message: "PDF remains locked (cancelled or too many wrong PINs)." };
       cb.onUpdate(result);
       return { file: result, transactions: [], meta: null, passwordUsed: null };
     }
     const result: ProcessedFile = { ...base, status: "error", message: (err as Error).message ?? "Failed to open PDF" };
     cb.onUpdate(result);
     return { file: result, transactions: [], meta: null, passwordUsed: null };
+  }
+
+  if (doc.numPages > LIMITS.maxPages) {
+    await doc.destroy();
+    return fail(base, `Too many pages (${doc.numPages}); the limit is ${LIMITS.maxPages}`, cb);
   }
 
   cb.onUpdate({ status: "reading", pagesTotal: doc.numPages });
@@ -149,12 +194,15 @@ async function processPdf(
     if (!meta || Object.keys(scanned.meta).length > Object.keys(meta).length) meta = scanned.meta;
   }
 
+  const pagesTotal = doc.numPages;
+  await doc.destroy(); // free the decrypted document from memory
+
   const result: ProcessedFile = {
     ...base,
     status: "done",
     message: undefined,
     usedOcr: scannedPages.length > 0,
-    pagesTotal: doc.numPages,
+    pagesTotal,
     pagesOcr: scannedPages.length,
     txnCount: allTransactions.length,
     meta: meta ?? undefined,

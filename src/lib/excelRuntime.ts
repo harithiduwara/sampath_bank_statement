@@ -1,76 +1,99 @@
-import * as XLSX from "xlsx";
+import writeXlsxFile, { type Cell, type Sheet } from "write-excel-file/browser";
 import type { AnalysisBucket, CategoryTotal, Transaction } from "./types";
 import type { Summary } from "./analysis";
 
+type Value = string | number | null | undefined;
+type Workbook = Sheet<never>[];
+
+/**
+ * Builds one sheet from a header row and plain rows. Text from a statement is
+ * always written as a text cell, never as a formula, so a description such as
+ * "=HYPERLINK(...)" stays harmless when the file is opened in Excel.
+ */
+function sheet(name: string, header: string[], rows: Value[][], widths: number[]): Sheet<never> {
+  const headerRow: Cell[] = header.map((value) => ({ value, fontWeight: "bold" }));
+  const body: Cell[][] = rows.map((r) => r.map((v) => (v === "" || v === undefined ? null : v)));
+  return {
+    sheet: name,
+    data: [headerRow, ...body],
+    columns: widths.map((width) => ({ width })),
+    stickyRowsCount: 1,
+  };
+}
+
+const round = (n: number, dp = 2) => Number(n.toFixed(dp));
+
+const READ_CHECK: Record<NonNullable<Transaction["confidence"]>, string> = {
+  verified: "Confirmed",
+  corrected: "Auto-corrected",
+  review: "Needs review",
+};
+
 /**
  * Builds the "runtime" workbook in memory from the current ledger state.
- * Called again every time transactions change, so the Excel export always
- * mirrors exactly what's on screen (one workbook, three live sheets).
+ * Called on export, so the Excel file always mirrors exactly what's on screen.
  */
 export function buildWorkbook(
   txns: Transaction[],
   buckets: AnalysisBucket[],
   categories: CategoryTotal[],
   summary: Summary
-): XLSX.WorkBook {
-  const wb = XLSX.utils.book_new();
-
-  const txnRows = txns.map((t) => ({
-    Date: t.date,
-    Description: t.description,
-    Category: t.category,
-    Debit: t.debit ?? "",
-    Credit: t.credit ?? "",
-    Balance: t.balance ?? "",
-    "Source File": t.sourceFile,
-    Page: t.sourcePage,
-    "Read check": t.confidence === "verified" ? "Confirmed" : t.confidence === "corrected" ? "Auto-corrected" : t.confidence === "review" ? "Needs review" : "",
-    "Date estimated": t.dateEstimated ? "Yes" : "",
-  }));
-  const wsTxns = XLSX.utils.json_to_sheet(txnRows);
-  wsTxns["!cols"] = [
-    { wch: 12 }, { wch: 40 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 26 }, { wch: 6 }, { wch: 15 }, { wch: 14 },
+): Workbook {
+  return [
+    sheet(
+      "Transactions",
+      ["Date", "Description", "Category", "Debit", "Credit", "Balance", "Source File", "Page", "Read check", "Date estimated"],
+      txns.map((t) => [
+        t.date,
+        t.description,
+        t.category,
+        t.debit,
+        t.credit,
+        t.balance,
+        t.sourceFile,
+        t.sourcePage,
+        t.confidence ? READ_CHECK[t.confidence] : "",
+        t.dateEstimated ? "Yes" : "",
+      ]),
+      [12, 40, 18, 14, 14, 14, 26, 6, 15, 14]
+    ),
+    sheet(
+      "Monthly Summary",
+      ["Month", "Income", "Expense", "Net"],
+      buckets.map((b) => [b.label, round(b.income), round(b.expense), round(b.net)]),
+      [14, 14, 14, 14]
+    ),
+    sheet(
+      "Category Breakdown",
+      ["Category", "Total", "Transactions", "% of Expense"],
+      categories.map((c) => [c.category, round(c.total), c.count, round(c.pctOfExpense, 1)]),
+      [20, 14, 14, 14]
+    ),
+    sheet(
+      "Overview",
+      ["Metric", "Value"],
+      [
+        ["Total Income", round(summary.totalIncome)],
+        ["Total Expense", round(summary.totalExpense)],
+        ["Net", round(summary.net)],
+        ["Savings Rate (%)", round(summary.savingsRate, 1)],
+        ["Avg Monthly Income", round(summary.avgMonthlyIncome)],
+        ["Avg Monthly Expense", round(summary.avgMonthlyExpense)],
+        ["Starting Balance", summary.startBalance],
+        ["Ending Balance", summary.endBalance],
+        ["Transactions", summary.txnCount],
+      ],
+      [22, 16]
+    ),
   ];
-  XLSX.utils.book_append_sheet(wb, wsTxns, "Transactions");
-
-  const monthlyRows = buckets.map((b) => ({
-    Month: b.label,
-    Income: Number(b.income.toFixed(2)),
-    Expense: Number(b.expense.toFixed(2)),
-    Net: Number(b.net.toFixed(2)),
-  }));
-  const wsMonthly = XLSX.utils.json_to_sheet(monthlyRows);
-  wsMonthly["!cols"] = [{ wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
-  XLSX.utils.book_append_sheet(wb, wsMonthly, "Monthly Summary");
-
-  const categoryRows = categories.map((c) => ({
-    Category: c.category,
-    Total: Number(c.total.toFixed(2)),
-    Transactions: c.count,
-    "% of Expense": Number(c.pctOfExpense.toFixed(1)),
-  }));
-  const wsCategory = XLSX.utils.json_to_sheet(categoryRows);
-  wsCategory["!cols"] = [{ wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
-  XLSX.utils.book_append_sheet(wb, wsCategory, "Category Breakdown");
-
-  const overviewRows = [
-    { Metric: "Total Income", Value: Number(summary.totalIncome.toFixed(2)) },
-    { Metric: "Total Expense", Value: Number(summary.totalExpense.toFixed(2)) },
-    { Metric: "Net", Value: Number(summary.net.toFixed(2)) },
-    { Metric: "Savings Rate (%)", Value: Number(summary.savingsRate.toFixed(1)) },
-    { Metric: "Avg Monthly Income", Value: Number(summary.avgMonthlyIncome.toFixed(2)) },
-    { Metric: "Avg Monthly Expense", Value: Number(summary.avgMonthlyExpense.toFixed(2)) },
-    { Metric: "Starting Balance", Value: summary.startBalance ?? "" },
-    { Metric: "Ending Balance", Value: summary.endBalance ?? "" },
-    { Metric: "Transactions", Value: summary.txnCount },
-  ];
-  const wsOverview = XLSX.utils.json_to_sheet(overviewRows);
-  wsOverview["!cols"] = [{ wch: 22 }, { wch: 16 }];
-  XLSX.utils.book_append_sheet(wb, wsOverview, "Overview");
-
-  return wb;
 }
 
-export function downloadWorkbook(wb: XLSX.WorkBook, filename = "bank-statement-analysis.xlsx") {
-  XLSX.writeFile(wb, filename);
+/** Keeps only safe filename characters (the account number comes from the PDF). */
+export function safeFileName(base: string): string {
+  const cleaned = base.replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60);
+  return `${cleaned || "bank-statement"}-analysis.xlsx`;
+}
+
+export async function downloadWorkbook(wb: Workbook, filename: string) {
+  await writeXlsxFile(wb).toFile(filename);
 }

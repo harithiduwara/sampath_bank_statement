@@ -40,6 +40,8 @@ export async function openPdf(
       const task = pdfjsLib.getDocument({
         data: data.slice(0),
         password: passwordToTry,
+        // Never compile code from the PDF (font programs etc.); CVE-2024-4367 hardening.
+        isEvalSupported: false,
       });
       const doc = await task.promise;
       return { doc, passwordUsed: passwordToTry ?? null };
