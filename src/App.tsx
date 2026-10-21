@@ -26,7 +26,10 @@ export default function App() {
 
   const knownPassword = useRef<string | null>(null);
 
-  const txns = useMemo(() => mergeAndDedupe(Object.values(batches)), [batches]);
+  const { transactions: txns, duplicates } = useMemo(
+    () => mergeAndDedupe(Object.entries(batches).map(([source, transactions]) => ({ source, transactions }))),
+    [batches]
+  );
   const buckets = useMemo(() => monthlyBuckets(txns), [txns]);
   const categories = useMemo(() => categoryBreakdown(txns), [txns]);
   const summary = useMemo(() => buildSummary(txns, buckets), [txns, buckets]);
@@ -89,7 +92,7 @@ export default function App() {
 
       <UploadZone onFiles={handleFiles} busy={busy} />
 
-      <ProcessingLog files={files} />
+      <ProcessingLog files={files} duplicates={duplicates} />
 
       {meta && (
         <div className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-xl border border-white/10 bg-ink-900/40 px-4 py-3 text-xs text-white/50">

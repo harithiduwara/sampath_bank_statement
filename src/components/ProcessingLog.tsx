@@ -12,7 +12,7 @@ const STATUS_LABEL: Record<ProcessedFile["status"], string> = {
   error: "Failed",
 };
 
-export default function ProcessingLog({ files }: { files: ProcessedFile[] }) {
+export default function ProcessingLog({ files, duplicates = {} }: { files: ProcessedFile[]; duplicates?: Record<string, number> }) {
   if (files.length === 0) return null;
   return (
     <div className="rounded-2xl border border-white/10 bg-ink-900/60 p-4">
@@ -35,6 +35,11 @@ export default function ProcessingLog({ files }: { files: ProcessedFile[] }) {
                   {f.message ? ` — ${f.message}` : ""}
                   {f.usedOcr ? " · scanned (OCR)" : ""}
                   {typeof f.txnCount === "number" ? ` · ${f.txnCount} transactions` : ""}
+                  {duplicates[f.id] ? (
+                    <span className="text-gold-400">
+                      {" "}· {duplicates[f.id]} already uploaded — duplicate{duplicates[f.id] === 1 ? "" : "s"} ignored
+                    </span>
+                  ) : null}
                 </p>
                 {f.status === "done" && f.quality && <QualityLine quality={f.quality} />}
               </div>
