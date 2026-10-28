@@ -87,6 +87,18 @@ export function parseStatementLines(
   if (accountMatch) {
     const m = /(\d{6,})/.exec(accountMatch.text);
     if (m) meta.accountNo = m[1];
+  } else {
+    // Some e-statements print the number unlabelled in the address block, next to the currency.
+    // Prefer that; otherwise take a 12+ digit number (10-digit ones are usually phone numbers).
+    const head = lines.slice(0, 30).map((l) => l.text);
+    const withCurrency = head.map((t) => /(?:^|\s)(\d{10,16})\s+(LKR|USD|EUR|GBP|AUD|INR)\b/.exec(t)).find(Boolean);
+    const bare = head.map((t) => /(?:^|\s)(\d{12,16})(?:\s|$)/.exec(t)).find(Boolean);
+    if (withCurrency) {
+      meta.accountNo = withCurrency[1];
+      meta.currency = withCurrency[2];
+    } else if (bare) {
+      meta.accountNo = bare[1];
+    }
   }
   const periodMatch = lines.find((l) => /FOR THE PERIOD/i.test(l.text));
   if (periodMatch) {

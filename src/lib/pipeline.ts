@@ -6,6 +6,9 @@ import { scanStatementPage } from "./scanTable";
 import { parseScannedStatement, type ScannedPage } from "./parseScanned";
 import { parseStatementLines } from "./parseStatement";
 import type { ProcessedFile, StatementMeta, Transaction } from "./types";
+import { LIMITS } from "./limits";
+
+export { LIMITS, ACCEPT } from "./limits";
 
 export interface PipelineResult {
   file: ProcessedFile;
@@ -17,15 +20,6 @@ export interface PipelineCallbacks {
   onUpdate: (patch: Partial<ProcessedFile>) => void;
   askForPassword: (attemptsSoFar: number) => Promise<string | null>;
 }
-
-/** Limits that keep a hostile or oversized file from freezing or crashing the tab. */
-export const LIMITS = {
-  maxFileBytes: 50 * 1024 * 1024,
-  maxPages: 60,
-  maxPinAttempts: 5,
-  /** Largest canvas we rasterize to (about 25 megapixels). */
-  maxCanvasPixels: 25_000_000,
-};
 
 type FileKind = "pdf" | "image" | "unknown";
 

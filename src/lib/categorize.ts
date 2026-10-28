@@ -7,15 +7,16 @@ interface Rule {
 // codes (VSRTFR, CACHQ, SLIPS, CDM, POS, ATM...) plus generic keywords.
 const RULES: Rule[] = [
   { category: "Salary / Payroll", pattern: /salary|payroll|epf|etf/i },
-  { category: "Transfers", pattern: /vsrtfr|rtgs|ceftfr|fund\s*transfer|neft|swift/i },
+  { category: "Fees & Charges", pattern: /s\/chg|chqbkchg|\bchg\b|charge|\bfee|commission|sms alert|ledger fee/i },
+  { category: "Deposits", pattern: /initial|deposit/i },
+  { category: "Transfers", pattern: /vsrtfr|rtgs|ceftfr|slips|fund\s*transfer|neft|swift/i },
   { category: "Cash", pattern: /\bcash\b|cdm\b/i },
-  { category: "Cheques", pattern: /cachq|cheque|chq\b/i },
-  { category: "Utilities", pattern: /ceb|electricity|water board|dialog|slt|mobitel|hutch|utility/i },
-  { category: "Loan / Investment", pattern: /\bnsc\b|investmen|loan|lease|fd\s*int|deposit/i },
+  { category: "Cheques", pattern: /cachq|trchq|cheque|chq\b/i },
+  { category: "Utilities", pattern: /\bceb\b|electricity|water board|dialog|\bslt\b|mobitel|hutch|utility/i },
+  { category: "Loan / Investment", pattern: /investmen|loan|lease|fd\s*int/i },
   { category: "Card / POS", pattern: /\bpos\b|card purchase|visa|master ?card/i },
   { category: "ATM Withdrawal", pattern: /\batm\b/i },
-  { category: "Fees & Charges", pattern: /charge|fee|commission|sms alert|ledger fee/i },
-  { category: "Interest", pattern: /interest|int\.?\b/i },
+  { category: "Interest", pattern: /interest|\bint\.?\b/i },
 ];
 
 export function categorize(description: string): string {

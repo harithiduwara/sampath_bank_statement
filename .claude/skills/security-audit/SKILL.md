@@ -48,7 +48,8 @@ checks in **Verify**.
   `connect-src 'self'`, no third-party `script-src`. pdf.js and tesseract
   need `worker-src 'self' blob:` and `'wasm-unsafe-eval'`.
 - `grep -rnE "localStorage|sessionStorage|indexedDB|document\.cookie" src`.
-  PINs must never be persisted. Statement data should not be either.
+  PINs must never be persisted. Statement data, edits and notes should not be
+  either. The only allowed key is the theme preference (`src/state/ui.ts`).
 - `grep -rn "console\.(log|info|debug)" src`. No logging of PINs, text or rows.
 
 ### 3. Untrusted input handling (PDFs, images)
